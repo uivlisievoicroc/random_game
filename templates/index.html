@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Random Game</title>
+    <style>
+        body { font-family: Helvetica, sans-serif; padding: 20px; text-align: center; }
+        table { margin: 20px auto; border-collapse: collapse; font-size: 1.4rem; }
+        th, td { padding: 15px 30px; border: 1px solid #ccc; font-size: 1.4rem; }
+        .prime { color: green; font-weight: bold; }
+        .non-prime { color: red; font-weight: bold; }
+        #winner-banner {
+            position: fixed;
+            top: 30%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: black;
+            color: gold;
+            padding: 30px 50px;
+            border: 3px solid gold;
+            font-size: 2rem;
+            z-index: 1000;
+            animation: pulse 1s infinite;
+        }
+        .interactive-prime {
+            background-color: yellow;
+            color: black;
+            font-weight: bold;
+            cursor: pointer;
+            /* Celula e interactivă doar când are clasa clickable */
+        .clickable {
+            pointer-events: auto;
+        }
+
+        /* Dacă scoatem clickable, nu mai primește eveniment */
+        .interactive-prime:not(.clickable) {
+            pointer-events: none;
+        }
+        }
+
+        @keyframes pulse {
+            0% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.1); }
+            100% { transform: translateX(-50%) scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Random Game</h1>
+
+    <form id="config-form">
+        <label for="num_players">How many players?</label>
+        <input type="number" id="num_players" name="num_players" min="1" max="20" value="1">
+        <button type="button" id="ok-button">OK</button>
+        <br><br>
+        <label for="round_limit">Set Rounds:</label>
+        <input type="number" id="round_limit" min="1" max="10000" value="100">
+        <button type="button" id="round-ok-button">OK</button>
+        <br><br>
+        <label for="interval_input">Insert time between rounds (seconds):</label>
+        <input type="number" id="interval_input" min="2" max="60" value="2">
+        <button type="button" id="interval-ok-button">OK</button>
+        <br><br>
+        <label>
+            <input type="checkbox" id="almighty-toggle">
+            Enable Sfredelin All Mighty
+            <br>
+        <label>
+            <input type="checkbox" id="special-character-toggle">
+            Activate Special Caracter
+        </label>
+        <button type="button" id="choose-special-button" disabled>Choose Special Player</button>
+        </label>
+        <button type="submit" id="start-button" disabled>Start</button>
+        <button type="button" id="choose-color-button">Choose Color</button>
+    </form>
+
+    <div id="game-area" style="display:none;">
+        <h2>Round <span id="round-number">0</span></h2>
+
+        <table>
+            <thead>
+                <tr id="player-headers"></tr>
+            </thead>
+            <tbody>
+                <tr id="player-values"></tr>
+                <tr id="player-sums"></tr>
+                <tr id="prime-indicators"></tr>
+            </tbody>
+        </table>
+
+        <div style="display: flex; justify-content: center; gap: 40px; align-items: flex-start;">
+            <div>
+                <h3>Leaderboard (by prime count)</h3>
+                <table id="leaderboard">
+                    <thead>
+                        <tr><th>Rank</th><th>Name</th><th>Primes Found</th></tr>
+                    </thead>
+                    <tbody id="leaderboard-body"></tbody>
+                </table>
+            </div>
+            <div>
+                <h3>Prime Log</h3>
+                <div style="max-height: 200px; overflow-y: auto;">
+                    <ul id="prime-log" style="text-align: left; padding-left: 20px;"></ul>
+                </div>
+            </div>
+        </div>
+        
+        <button id="reset-button" style="margin-top: 20px;">Reset Game</button>
+    </div>
+
+    <script>
+        let primeCounts = {};
+        let playerColors = {};
+        let playerNames = [];
+        let round = 0;
+        let numPlayers = 5;
+        let roundLimit = null;
+        let playerConfigReady = false;
+        let roundConfigReady = false;
+        let intervalSeconds = 10;
+        let specialCharacterEnabled = false;
+        let specialCharacterName = null;
+        let specialActivatedThisRound = false;
+
+        document.getElementById('special-character-toggle').addEventListener('change', function () {
+            specialCharacterEnabled = this.checked;
+            document.getElementById('choose-special-button').disabled = !specialCharacterEnabled;
+        });
+
+        document.getElementById('choose-special-button').addEventListener('click', () => {
+            const name = prompt("Choose a player for special caracter (e.g., exact name you typed before)");
+            if (playerNames.includes(name)) {
+                specialCharacterName = name;
+                alert(`${name} is now the Special Caracter!`);
+            } else {
+                alert("Invalid name.");
+            }
+        });
+
+        document.getElementById('ok-button').addEventListener('click', () => {
+            numPlayers = parseInt(document.getElementById('num_players').value);
+            for (let i = 0; i < numPlayers; i++) {
+                const name = prompt(`Enter name for Player ${i + 1}:`, `Player ${i + 1}`);
+                const key = `Player ${i+1}`;
+                playerColors[key] = getRandomColor();
+                playerNames[i] = name;
+            }
+            playerConfigReady = true;
+            if (playerConfigReady && roundConfigReady) {
+                document.getElementById('start-button').disabled = false;
+            }
+        });
+
+        document.getElementById('round-ok-button').addEventListener('click', () => {
+            roundLimit = parseInt(document.getElementById('round_limit').value);
+            roundConfigReady = true;
+            if (playerConfigReady && roundConfigReady) {
+                document.getElementById('start-button').disabled = false;
+            }
+        });
+
+        document.getElementById('interval-ok-button').addEventListener('click', () => {
+            const val = parseInt(document.getElementById('interval_input').value);
+            if (val >= 1 && val <= 60) {
+                intervalSeconds = val;
+                alert(`Interval set to ${intervalSeconds} second(s) between rounds.`);
+            } else {
+                alert("Please enter a value between 1 and 60.");
+            }
+        });
+
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        document.getElementById('config-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            numPlayers = parseInt(document.getElementById('num_players').value);
+            const almightyMode = document.getElementById('almighty-toggle').checked ? "almighty" : "normal";
+            const res = await fetch('/api/set_players', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    num_players: numPlayers,
+                    sfredelin_mode: almightyMode
+                })
+            });
+            if (res.ok) {
+                document.getElementById('config-form').style.display = 'none';
+                document.getElementById('game-area').style.display = 'block';
+                startGameLoop();
+            }
+        });
+
+        function renderRound(data) {
+            window.currentRoundData = data;
+            specialActivatedThisRound = false;
+            // Previne procesarea dublă pentru aceeași rundă
+            if (window.lastRoundProcessed === data.round) {
+                return;
+            }
+            window.lastRoundProcessed = data.round;
+
+            console.log(data); // debug
+
+            // 1) actualizăm round
+            round = data.round;
+            document.getElementById('round-number').textContent = round;
+
+            // 2) preluăm referințe la rândurile HTML
+            const headers = document.getElementById('player-headers');
+            const values = document.getElementById('player-values');
+            const sums = document.getElementById('player-sums');
+            const primes = document.getElementById('prime-indicators');
+
+            // 3) curățăm conținutul vechi
+            headers.innerHTML = `<th></th>`;
+            values.innerHTML = `<th>1→9 random gen</th>`;
+            sums.innerHTML = `<th>Sum to check</th>`;
+            primes.innerHTML = `<th>Is prime or not?</th>`;
+
+            // 4) completăm antet
+            for (let i = 0; i < data.players.length; i++) {
+                const name = playerNames[i] || `Player ${i+1}`;
+                headers.innerHTML += `<th>${name}</th>`;
+            }
+            headers.innerHTML += `<th>Amarel</th><th>Trantarel</th><th>Sfredelin</th>`;
+
+            document.querySelectorAll('#player-headers th').forEach((th, idx) => {
+                if (idx > 0 && idx <= data.players.length) {
+                    const name = `Player ${idx}`;
+                    if (playerColors[name]) th.style.color = playerColors[name];
+                }
+            });
+
+            // 5) completăm valorile generate
+            for (let i = 0; i < data.players.length; i++) {
+                values.innerHTML += `<td>${data.players[i]}</td>`;
+            }
+            values.innerHTML += `<td>${data.amarel}</td><td></td>`;
+
+            // 6) completăm sumele
+            for (let i = 0; i < data.sums.length; i++) {
+                sums.innerHTML += `<td>${data.sums[i]}</td>`;
+            }
+            sums.innerHTML += `<td>${data.amarel_sum}</td><td>${data.trantarel_sum}</td><td>${data.sfredelin_sum}</td>`;
+
+            // 7) completăm prime check
+            for (let i = 0; i < data.primes.players.length; i++) {
+                const name = playerNames[i] || `Player ${i + 1}`;
+                const isSpecial = name === specialCharacterName;
+
+                if (isSpecial) {
+                    primes.innerHTML += `<td class="interactive-prime clickable" data-player="${name}">?</td>`;
+                    setTimeout(() => {
+                        const td = document.querySelector(`td[data-player="${name}"]`);
+                        if (!td) return;
+
+                        td.classList.remove('clickable');  // dezactivare input
+                        if (!specialActivatedThisRound) {
+                            td.textContent = data.primes.players[i] ? '✓' : '✗';
+                            td.className = data.primes.players[i] ? 'prime' : 'non-prime';
+                        }
+                    }, 1000);
+                } else {
+                    primes.innerHTML += `<td class="${data.primes.players[i] ? 'prime' : 'non-prime'}">${data.primes.players[i] ? '✓' : '✗'}</td>`;
+                }
+            }
+            document.addEventListener('keydown', function(e) {
+                if (e.code === 'Space' && specialCharacterName && !specialActivatedThisRound) {
+                    triggerSpecialReveal();
+                }
+            });
+            
+            document.querySelectorAll('.interactive-prime').forEach(cell => {
+                cell.addEventListener('click', triggerSpecialReveal);
+            });
+
+            // Funcția care dezvăluie comportamentul special
+            function triggerSpecialReveal() {
+                if (!specialCharacterName || specialActivatedThisRound) return;
+
+                const td = document.querySelector(`td[data-player="${specialCharacterName}"]`);
+                if (!td || !td.classList.contains('clickable')) return;  // activ doar în prima secundă
+
+                const index = playerNames.indexOf(specialCharacterName);
+                if (index < 0 || !window.currentRoundData) return;
+
+                const isPrime = window.currentRoundData.primes.players[index];
+                td.textContent = isPrime ? 'YES!' : 'FUCK!';
+                td.className = isPrime ? 'prime' : 'non-prime';
+                td.style.fontWeight = 'bold';
+                if (isPrime) {
+                    if (!("Sfredelin" in primeCounts)) primeCounts["Sfredelin"] = 0;
+                    primeCounts["Sfredelin"] -= 1;
+
+                    const leaderboardRows = document.querySelectorAll("#leaderboard-body tr");
+                    leaderboardRows.forEach(row => {
+                        const nameCell = row.children[1];
+                        if (nameCell && nameCell.textContent.trim() === "Sfredelin") {
+                            const scoreCell = row.children[2];
+                            scoreCell.textContent = primeCounts["Sfredelin"];
+
+                            const minusOne = document.createElement("div");
+                            minusOne.textContent = "-1";
+                            minusOne.style.position = "absolute";
+                            const rect = scoreCell.getBoundingClientRect();
+                            minusOne.style.left = rect.left + window.scrollX + "px";
+                            minusOne.style.top = rect.top + window.scrollY + "px";
+                            minusOne.style.color = "red";
+                            minusOne.style.fontWeight = "bold";
+                            minusOne.style.fontSize = "20px";
+                            minusOne.style.zIndex = "1000";
+                            minusOne.style.transition = "all 1s ease-out";
+                            document.body.appendChild(minusOne);
+                            setTimeout(() => {
+                                minusOne.style.transform = "translateY(-40px)";
+                                minusOne.style.opacity = "0";
+                            }, 50);
+                            setTimeout(() => {
+                                minusOne.remove();
+                            }, 1050);
+                        }
+                    });
+                } else {
+                    const index = playerNames.indexOf(specialCharacterName);
+                    const playerKey = `Player ${index + 1}`;
+                    primeCounts[playerKey] = (primeCounts[playerKey] || 0) - 1;
+
+                    const leaderboardRows = document.querySelectorAll("#leaderboard-body tr");
+                    leaderboardRows.forEach(row => {
+                        const nameCell = row.children[1];
+                        if (nameCell && nameCell.textContent.trim() === specialCharacterName) {
+                            const scoreCell = row.children[2];
+                            scoreCell.textContent = primeCounts[playerKey];
+
+                            const minusOne = document.createElement("div");
+                            minusOne.textContent = "-1";
+                            minusOne.style.position = "absolute";
+                            const rect = scoreCell.getBoundingClientRect();
+                            minusOne.style.left = rect.left + window.scrollX + "px";
+                            minusOne.style.top = rect.top + window.scrollY + "px";
+                            minusOne.style.color = "red";
+                            minusOne.style.fontWeight = "bold";
+                            minusOne.style.fontSize = "40px";
+                            minusOne.style.zIndex = "1000";
+                            minusOne.style.transition = "all 1s ease-out";
+                            document.body.appendChild(minusOne);
+                            setTimeout(() => {
+                                minusOne.style.transform = "translateY(-40px)";
+                                minusOne.style.opacity = "0";
+                            }, 50);
+                            setTimeout(() => {
+                                minusOne.remove();
+                            }, 1050);
+                        }
+                    });
+                }
+
+                specialActivatedThisRound = true;
+                td.classList.remove('clickable');  // dezactivează input imediat
+            }
+
+            // Funcție care scoate "clickable" din casetă, 
+            // prevenind alte click-uri în runda curentă
+            function deactivateSpecialCell() {
+                const td = document.querySelector(`td[data-player="${specialCharacterName}"]`);
+                if (td) {
+                    td.classList.remove('clickable');
+                }
+            }
+
+            for (let i = 0; i < data.primes.players.length; i++) {
+                if (data.primes.players[i]) {
+                    const name = playerNames[i] || `Player ${i + 1}`;
+                    const li = document.createElement('li');
+                    li.textContent = `Round ${data.round} - ${name} sum ${data.sums[i]} (prime)`;
+                    li.style.color = playerColors[`Player ${i + 1}`] || '#000';
+                    document.getElementById('prime-log').appendChild(li);
+                    primeCounts[`Player ${i + 1}`] = (primeCounts[`Player ${i + 1}`] || 0) + 1;
+                }
+            }
+            // Add Amarel prime check
+            if (data.primes.amarel) {
+                const li = document.createElement('li');
+                li.textContent = `Round ${data.round} - Amarel sum ${data.amarel_sum} (prime)`;
+                li.style.color = playerColors["Amarel"] || '#000';
+                document.getElementById('prime-log').appendChild(li);
+                primeCounts["Amarel"] = (primeCounts["Amarel"] || 0) + 1;
+            }
+            primes.innerHTML += `<td class="${data.primes.amarel ? 'prime' : 'non-prime'}">${data.primes.amarel ? '✓' : '✗'}</td>`;
+
+            // Add Trantarel prime check
+            if (data.primes.trantarel) {
+                const li = document.createElement('li');
+                li.textContent = `Round ${data.round} - Trantarel sum ${data.trantarel_sum} (prime)`;
+                li.style.color = playerColors["Trantarel"] || '#000';
+                document.getElementById('prime-log').appendChild(li);
+                primeCounts["Trantarel"] = (primeCounts["Trantarel"] || 0) + 1;
+            }
+            if (!("Trantarel" in primeCounts)) primeCounts["Trantarel"] = 0;
+            primes.innerHTML += `<td class="${data.primes.trantarel ? 'prime' : 'non-prime'}">${data.primes.trantarel ? '✓' : '✗'}</td>`;
+
+            // 8) Sfredelin prime check
+            if (data.primes.sfredelin) {
+                const li = document.createElement('li');
+                li.textContent = `Round ${data.round} - Sfredelin sum ${data.sfredelin_sum} (prime)`;
+                li.style.color = playerColors["Sfredelin"] || '#000';
+                document.getElementById('prime-log').appendChild(li);
+                primeCounts["Sfredelin"] = (primeCounts["Sfredelin"] || 0) + 1;
+            }
+            primes.innerHTML += `<td class="${data.primes.sfredelin ? 'prime' : 'non-prime'}">${data.primes.sfredelin ? '✓' : '✗'}</td>`;
+
+            // 9) actualizăm leaderboard (ex. rank)
+            // Initialize all prime counts
+            for (let i = 0; i < data.players.length; i++) {
+                const key = `Player ${i+1}`;
+                if (!(key in primeCounts)) primeCounts[key] = 0;
+            }
+            if (!("Sfredelin" in primeCounts)) primeCounts["Sfredelin"] = 0;
+            if (!("Amarel" in primeCounts)) primeCounts["Amarel"] = 0;
+
+            // Sort leaderboard fairly
+            let sorted = Object.entries(primeCounts).sort((a, b) => b[1] - a[1]);
+            const leaderboardBody = document.getElementById('leaderboard-body');
+            leaderboardBody.innerHTML = '';  // Clear old leaderboard
+            sorted.forEach(([key, count], idx) => {
+                let displayName = key;
+                if (key.startsWith("Player ")) {
+                    const index = parseInt(key.split(" ")[1]) - 1;
+                    displayName = playerNames[index] || key;
+                }
+                const color = playerColors[key] || '#000';
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${idx + 1}</td><td style="color:${color}">${displayName}</td><td>${count}</td>`;
+                leaderboardBody.appendChild(row);
+            });
+        }
+
+        async function fetchRound() {
+            const res = await fetch('/api/round');
+            if (res.ok) {
+                const data = await res.json();
+                renderRound(data);
+            }
+        }
+
+        function startGameLoop() {
+            // Generate and render empty state first
+            const dummyData = {
+                round: 0,
+                players: Array(numPlayers).fill(0),
+                sums: Array(numPlayers).fill(0),
+                total: 0,
+                amarel_sum: 0,
+                sfredelin_sum: 0,
+                amarel: 0,
+                primes: {
+                    players: Array(numPlayers).fill(false),
+                    amarel: false,
+                    sfredelin: false
+                }
+            };
+            renderRound(dummyData);
+
+            // Then after the specified interval start the real game loop
+            let interval = setInterval(async () => {
+                await fetchRound();
+                if (round >= roundLimit) {
+                    clearInterval(interval);
+                    // Find winner
+                    const sorted = Object.entries(primeCounts).sort((a, b) => b[1] - a[1]);
+                    const winnerBanner = document.createElement("div");
+                    winnerBanner.id = "winner-banner";
+                    let winnerLabel = sorted[0][0];
+                    if (winnerLabel.startsWith("Player ")) {
+                        const winnerIndex = parseInt(winnerLabel.split(" ")[1]) - 1;
+                        winnerLabel = playerNames[winnerIndex] || winnerLabel;
+                    }
+                    winnerBanner.innerHTML = `🎉 ${winnerLabel} wins with ${sorted[0][1]} prime points! 🎉`;
+                    winnerBanner.style.color = playerColors[sorted[0][0]] || 'gold';
+                    document.body.appendChild(winnerBanner);
+
+                    winnerBanner.addEventListener("click", () => winnerBanner.remove());
+                    setTimeout(() => {
+                        if (document.body.contains(winnerBanner)) {
+                            winnerBanner.remove();
+                        }
+                    }, 6000);
+
+                    // Trigger confetti (optional simple effect)
+                    const confetti = document.createElement("div");
+                    confetti.innerHTML = "✨🎊🎆✨";
+                    confetti.style.fontSize = "2rem";
+                    confetti.style.marginTop = "10px";
+                    document.getElementById("winner-banner").appendChild(confetti);
+
+                    // Optional sound effect
+                    const audio = new Audio("https://www.soundjay.com/buttons/sounds/button-09.mp3");
+                    audio.play();
+                }
+            }, intervalSeconds * 1000);
+        }
+        document.getElementById("reset-button").addEventListener("click", () => {
+            document.getElementById('config-form').style.display = 'block';
+            document.getElementById('game-area').style.display = 'none';
+            document.getElementById('prime-log').innerHTML = '';
+            document.getElementById('leaderboard-body').innerHTML = '';
+            primeCounts = {};
+            round = 0;
+        });
+
+        document.getElementById('choose-color-button').addEventListener('click', () => {
+            const name = prompt("Which player do you want to recolor? (e.g., Player 1)");
+            if (name && playerColors[name] !== undefined) {
+                const newColor = prompt("Enter hex color (e.g., #FF0000):", playerColors[name]);
+                if (/^#[0-9A-F]{6}$/i.test(newColor)) {
+                    playerColors[name] = newColor;
+                } else {
+                    alert("Invalid color format.");
+                }
+            }
+        });
+        
+
+
+
+    </script>
+</body>
+</html>
